@@ -753,9 +753,27 @@ def extract_keyframes(
     返回 dict：原尺寸(width/height)、总时长(duration)、帧率(fps)、
     关键帧清单(keyframes，含序号/时间戳/文件路径)。
     """
+    raw_src = str(src)
+    if os.name == "nt" and raw_src.startswith("/") and not raw_src.startswith("//"):
+        resolved_hint = Path(raw_src).expanduser().resolve()
+        raise ValueError(
+            f"POSIX-style path on Windows: {raw_src!r}.\n"
+            f"Python resolves it to: {resolved_hint}\n"
+            "Use a Windows absolute path (for example C:\\Users\\...\\video.mp4) "
+            "or the attachment's local path. Do not retry the same path."
+        )
+
     src = Path(src).expanduser().resolve()
     if not src.exists():
-        raise FileNotFoundError(f"文件不存在：{src}")
+        raise FileNotFoundError(
+            f"文件不存在：{src}\n"
+            f"原始输入：{raw_src}\n"
+            f"当前工作目录：{Path.cwd()}\n"
+            "先运行 scripts/preflight.py --video <path> 诊断一次；"
+            "不要原样重试同一个路径。"
+        )
+    if not src.is_file():
+        raise ValueError(f"不是文件：{src}")
     if src.suffix.lower() not in _VIDEO_EXT | _GIF_EXT:
         raise ValueError(f"不支持的扩展名：{src.suffix}（支持常见视频格式与 .gif）")
 

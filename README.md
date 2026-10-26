@@ -12,8 +12,30 @@
 
 ---
 
+## v2 小模型 / 非交互入口（推荐）
+
+v2 增加了 `scripts/run_video.py`：先检查路径和依赖，再抽帧，最后校验总览图，只输出一个 JSON。小模型、pi 等非交互 agent 优先用它。
+
+```bash
+python scripts/run_video.py --video "C:\path\video.mp4" --output "C:\path\out"
+```
+
+只检查路径/依赖：
+
+```bash
+python scripts/run_video.py --check --video "C:\path\video.mp4"
+```
+
+路径规则：Windows 上 `/root/...` 会被 Python 解析成 `C:\root\...`。遇到 `ENOENT` 或 `posix_on_windows: true` 时，只诊断一次，不要原样重试；改用真实 Windows 路径或附件本地路径。
+
+成功输出包含 `ok`、`overviews`、`keyframes_json`、`keyframe_count`、`next_step`；失败输出 `ok: false` + `error` + `hint`。
+小模型专用的精简说明见 [`SKILL.optimized.md`](SKILL.optimized.md)。
+
+---
+
 ## 目录
 
+- [v2 小模型 / 非交互入口（推荐）](#v2-小模型--非交互入口推荐)
 - [为什么要它](#为什么要它)
 - [怎么配合多模态大模型用](#怎么配合多模态大模型用)
 - [核心特性](#核心特性)
@@ -153,6 +175,8 @@ ffmpeg 装法：
 ---
 
 ## 快速开始
+
+> 小模型 / 非交互 agent 优先用 `scripts/run_video.py`，见上面的 [v2 节](#v2-小模型--非交互入口推荐)。
 
 ### 命令行
 
@@ -390,13 +414,15 @@ for img_path in meta["overviews"]:      # 顺序 = 时间顺序，一张都不�
 
 ```
 video-understanding/
-├── SKILL.md                    # Skill 定义与调用约定
+├── SKILL.md                    # 完整 Skill 定义与调用约定
+├── SKILL.optimized.md          # 小模型 / 非交互精简版
 ├── README.md                   # 本文件
 ├── LICENSE                     # GPL-3.0 全文
 ├── references/
 │   └── parameters.md           # 参数全表、阈值原理、选帧算法、性能数据
 └── scripts/
-    └── extract_keyframes.py    # 抽帧主脚本（CLI + 可 import）
+    ├── extract_keyframes.py    # 抽帧主脚本（CLI + 可 import）
+    └── run_video.py            # v2 非交互入口（检查 + 抽帧 + 校验）
 ```
 
 ---

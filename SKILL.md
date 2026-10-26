@@ -4,6 +4,11 @@ description: 把视频 / GIF 压缩成几张「大模型读得清」的关键帧
 agent_created: true
 ---
 
+> **v2 小模型 / 非交互入口**：优先使用 `SKILL.optimized.md` 和
+> `scripts/run_video.py`。`run_video.py` 会先检查路径和依赖，再抽帧；
+> 路径不存在，或 Windows 上出现 `/root/...` 时，只诊断一次，不要原样重试。
+> 详细用法见 `SKILL.optimized.md`。
+
 # video-understanding：视频理解（关键帧总览 → 识图 → 画面与内容理解）
 
 把一段视频压成**几张图**，让模型按顺序看完整个视频内容，再输出**对这段视频的完整理解**。
