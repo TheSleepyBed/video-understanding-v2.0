@@ -29,7 +29,8 @@ python scripts/run_video.py --check --video "C:\path\video.mp4"
 路径规则：Windows 上 `/root/...` 会被 Python 解析成 `C:\root\...`。遇到 `ENOENT` 或 `posix_on_windows: true` 时，只诊断一次，不要原样重试；改用真实 Windows 路径或附件本地路径。
 
 成功输出包含 `ok`、`overviews`、`keyframes_json`、`keyframe_count`、`next_step`；失败输出 `ok: false` + `error` + `hint`。
-小模型专用的精简说明见 [`SKILL.optimized.md`](SKILL.optimized.md)。
+根目录 `SKILL.md` 就是小模型 / 非交互精简版；原详细版 skill 文本保留在
+[`references/full-skill.md`](references/full-skill.md) 作参考。
 
 ---
 
@@ -414,11 +415,11 @@ for img_path in meta["overviews"]:      # 顺序 = 时间顺序，一张都不�
 
 ```
 video-understanding/
-├── SKILL.md                    # 完整 Skill 定义与调用约定
-├── SKILL.optimized.md          # 小模型 / 非交互精简版
+├── SKILL.md                    # 小模型 / 非交互精简版（agent 直接加载）
 ├── README.md                   # 本文件
 ├── LICENSE                     # GPL-3.0 全文
 ├── references/
+│   ├── full-skill.md           # 原详细版 skill 文本（参考）
 │   └── parameters.md           # 参数全表、阈值原理、选帧算法、性能数据
 └── scripts/
     ├── extract_keyframes.py    # 抽帧主脚本（CLI + 可 import）
