@@ -2,6 +2,14 @@
 
 需要调参、或想知道"为什么抽出来的是这些帧"时读本文。日常使用只看 `SKILL.md` 的固定命令模板即可。
 
+## 推荐入口
+
+- 小模型 / 非交互：优先用 `scripts/run_video.py`，它自动做路径和依赖检查。
+- 只检查路径/依赖：`run_video.py --check`。
+- 需要自定义参数：再直接调用 `scripts/extract_keyframes.py`。
+
+`run_video.py` 默认：`--cols 3 --sheet-max-cells 12 --sheet-width 1600 --max-width 0`，单帧质量 90，总览图质量 95；默认输出到视频同级同名文件夹，并生成 `cleanup_<名>.cmd`。
+
 ## 全部参数
 
 | 参数 | 默认 | 说明 |

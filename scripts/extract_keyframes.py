@@ -361,7 +361,7 @@ def _downscale_gray(rgb: np.ndarray, aw: int) -> np.ndarray:
     return np.asarray(img)
 
 
-def analyze(path: Path, analyze_width: int = ANALYZE_WIDTH):
+def analyze(path: Path, analyze_width: int = ANALYZE_WIDTH, progress_cb=None):
     """第一遍：逐帧算相邻帧差异，返回 (差异数组, 实际帧数, 元数据)"""
     suffix = path.suffix.lower()
     is_gif = suffix in _GIF_EXT
@@ -391,6 +391,8 @@ def analyze(path: Path, analyze_width: int = ANALYZE_WIDTH):
     scores: list[float] = []
     count = 0
     prev = None
+    total_hint = info.get("nb_frames") or None
+    next_report = 1
     for frame in source:
         if frame.ndim == 3:
             frame = _downscale_gray(frame, min(analyze_width, frame.shape[1]))
@@ -399,13 +401,17 @@ def analyze(path: Path, analyze_width: int = ANALYZE_WIDTH):
             scores.append(diff_score(prev, sig))
         prev = sig
         count += 1
+        if progress_cb is not None and (count == 1 or count >= next_report):
+            progress_cb("analyze", count, total_hint, info)
+            next_report = count + 30
 
     return np.asarray(scores, dtype=np.float32), count, info
 
 
 # --------------------------------------------------------------------- 第二遍：导出
 def _export_video(path: Path, indices: Sequence[int], out_size: tuple[int, int],
-                  out_files: Sequence[Path], quality: int) -> None:
+                  out_files: Sequence[Path], quality: int,
+                  progress_cb=None) -> None:
     """
     第二遍：完整解码一遍，遇到指定的帧号就存图。
 
@@ -447,6 +453,8 @@ def _export_video(path: Path, indices: Sequence[int], out_size: tuple[int, int],
                         img.save(dest, compress_level=6)
                     else:
                         img.save(dest, quality=int(quality), subsampling=1)
+                    if progress_cb is not None:
+                        progress_cb("export", k + 1, len(indices), None)
                 idx += 1
         finally:
             proc.stdout.close()
@@ -462,12 +470,13 @@ def _export_video(path: Path, indices: Sequence[int], out_size: tuple[int, int],
 
 
 def _export_gif(path: Path, indices: Sequence[int], out_size: tuple[int, int],
-                out_files: Sequence[Path], quality: int) -> None:
+                out_files: Sequence[Path], quality: int,
+                progress_cb=None) -> None:
     if not _HAS_PIL:
         raise RuntimeError("处理 GIF 需要 Pillow：pip install Pillow")
     out_w, out_h = out_size
     with Image.open(path) as im:
-        for idx, dest in zip(indices, out_files):
+        for n, (idx, dest) in enumerate(zip(indices, out_files), start=1):
             im.seek(idx)
             img = im.convert("RGB")
             if img.size != (out_w, out_h):
@@ -476,6 +485,8 @@ def _export_gif(path: Path, indices: Sequence[int], out_size: tuple[int, int],
                 img.save(dest, compress_level=6)
             else:
                 img.save(dest, quality=int(quality), subsampling=1)
+            if progress_cb is not None:
+                progress_cb("export", n, len(indices), None)
 
 
 # --------------------------------------------------------------------- 总览图
@@ -543,6 +554,7 @@ def build_overview_sheets(
     min_cell: int = 280,
     cell_width: int = 0,
     quality: int = 95,
+    progress_cb=None,
 ) -> dict:
     """
     把关键帧拼成总览图 —— 帧多的时候拼成**多张**，而不是一张塞满小格。
@@ -672,6 +684,8 @@ def build_overview_sheets(
             "first_index": int(chunk_idx[0]),
             "last_index": int(chunk_idx[-1]),
         })
+        if progress_cb is not None:
+            progress_cb("sheet", gi, len(groups), None)
 
     first = sheets[0]
     return {
@@ -746,6 +760,7 @@ def extract_keyframes(
     sheet_only: bool = False,
     include_last: bool = False,
     verbose: bool = True,
+    progress_cb=None,
 ) -> dict:
     """
     抽取单个视频 / GIF 的关键帧。
@@ -769,7 +784,7 @@ def extract_keyframes(
             f"文件不存在：{src}\n"
             f"原始输入：{raw_src}\n"
             f"当前工作目录：{Path.cwd()}\n"
-            "先运行 scripts/preflight.py --video <path> 诊断一次；"
+            "先运行 run_video.py --check --video <path> 诊断一次；"
             "不要原样重试同一个路径。"
         )
     if not src.is_file():
@@ -794,7 +809,9 @@ def extract_keyframes(
 
     if verbose:
         print(f"[1/3] 分析画面变化 …  {src.name}", file=sys.stderr)
-    scores, n_frames, info = analyze(src, analyze_width)
+    if progress_cb is not None:
+        progress_cb("analyze", 0, None, {})
+    scores, n_frames, info = analyze(src, analyze_width, progress_cb=progress_cb)
     if n_frames <= 0:
         raise RuntimeError(f"没读到任何帧：{src}")
 
@@ -861,15 +878,21 @@ def extract_keyframes(
 
     sheet_file = None
     sheet_info = None
+    if progress_cb is not None:
+        progress_cb("export", 0, len(indices), None)
     try:
         if src.suffix.lower() in _GIF_EXT:
-            _export_gif(src, indices, (out_w, out_h), out_files, quality)
+            _export_gif(src, indices, (out_w, out_h), out_files, quality,
+                        progress_cb=progress_cb)
         else:
-            _export_video(src, indices, (out_w, out_h), out_files, quality)
+            _export_video(src, indices, (out_w, out_h), out_files, quality,
+                          progress_cb=progress_cb)
 
         if contact_sheet or sheet_only:
             if verbose:
                 print("[3/3] 生成总览图 …", file=sys.stderr)
+            if progress_cb is not None:
+                progress_cb("sheet", 0, None, None)
             items = [(p, f"#{k['n']}  {k['time']:.2f}s")
                      for p, k in zip(out_files, keyframes)]
 
@@ -880,6 +903,7 @@ def extract_keyframes(
                 max_cells=sheet_max_cells, max_sheets=sheet_max_sheets,
                 per_sheet_cap=SHEET_PER_SHEET_CAP,
                 cell_width=cell_width, quality=sheet_quality,
+                progress_cb=progress_cb,
             )
             if sheet_info:
                 sheet_file = sheet_info["path"]
@@ -907,6 +931,7 @@ def extract_keyframes(
             "max_width": max_width,
             "format": ext,
             "quality": quality,
+            "sheet_quality": sheet_quality,
         },
         "output_dir": str(out_dir),
         "sheet_only": bool(sheet_only),
@@ -925,6 +950,8 @@ def extract_keyframes(
     else:
         meta_path = out_dir / "keyframes.json"
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    if progress_cb is not None:
+        progress_cb("done", 1, 1, None)
     return meta
 
 

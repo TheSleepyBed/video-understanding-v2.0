@@ -7,7 +7,7 @@ agent_created: true
 > **说明**：这是原始详细版 skill 文本，保留作参考。当前生效的 skill 定义是根目录的
 > `SKILL.md`（小模型 / 非交互精简版）。
 >
-> v2 入口：优先使用根目录 `SKILL.md` 和 `scripts/run_video.py`。
+> V3 入口：优先使用根目录 `SKILL.md` 和 `scripts/run_video.py`。
 > `run_video.py` 会先检查路径和依赖，再抽帧；路径不存在，或 Windows 上出现
 > `/root/...` 时，只诊断一次，不要原样重试。
 

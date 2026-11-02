@@ -12,23 +12,41 @@
 
 ---
 
-## v2 小模型 / 非交互入口（推荐）
+## V3（3.0.0）小模型 / 非交互入口（推荐）
 
-v2 增加了 `scripts/run_video.py`：先检查路径和依赖，再抽帧，最后校验总览图，只输出一个 JSON。小模型、pi 等非交互 agent 优先用它。
+V3（3.0.0）把入口收敛成一条命令：只传视频路径，自动检查路径/依赖、抽帧、校验总览图、生成清理脚本，输出 JSONL（心跳 + 最终结果）。小模型、pi 等非交互 agent 优先用它。
 
 ```bash
-python scripts/run_video.py --video "C:\path\video.mp4" --output "C:\path\out"
+PYTHONUTF8=1 PYTHONIOENCODING=utf-8 python scripts/run_video.py "C:/Videos/测试 视频.mp4"
 ```
+
+- 默认输出到视频同级的同名文件夹：`C:/Videos/测试 视频/`
+- 自动生成清理脚本：`C:/Videos/cleanup_测试 视频.cmd`
+- 路径 Windows 上优先用正斜杠并加引号；反斜杠在 Git Bash 里容易被吃掉
+- `PYTHONUTF8=1 PYTHONIOENCODING=utf-8` 前缀是 Git Bash 写法；PowerShell 用
+  `$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; ...`
+- 调用 pi 的 bash 工具时设置 `timeout=600`（工具参数，单位秒；不是命令参数）；长视频用 `1800`
+- 默认单帧质量 90（约等于 ffmpeg `-q:v 3`），总览图质量 95
+- 每 5 秒输出一条心跳，最后一行是 `event: result`
 
 只检查路径/依赖：
 
 ```bash
-python scripts/run_video.py --check --video "C:\path\video.mp4"
+python scripts/run_video.py --check "C:/Videos/测试 视频.mp4"
 ```
 
-路径规则：Windows 上 `/root/...` 会被 Python 解析成 `C:\root\...`。遇到 `ENOENT` 或 `posix_on_windows: true` 时，只诊断一次，不要原样重试；改用真实 Windows 路径或附件本地路径。
+清理脚本：
 
-成功输出包含 `ok`、`overviews`、`keyframes_json`、`keyframe_count`、`next_step`；失败输出 `ok: false` + `error` + `hint`。
+```bat
+cleanup_测试 视频.cmd                     :: 删除整个输出目录（会确认）
+cleanup_测试 视频.cmd --keep-overviews    :: 只删 frames，保留总览图
+cleanup_测试 视频.cmd --yes               :: 非交互删除
+```
+
+路径规则：Windows 上 `/root/...` 会被 Python 解析成 `C:\root\...`。遇到 `ENOENT` 或 `posix_on_windows: true` 时，只诊断一次，不要原样重试；改用真实 Windows 路径或附件本地路径。中文路径被 shell 改写时，用 `--path-file` 从 UTF-8 文件读取。
+
+成功结果的 JSON 包含 `ok`、`output_dir`、`cleanup_script`、`overviews`、`keyframes_json`、`keyframe_count`、`next_step`；失败输出 `ok: false` + `error` + `hint`。
+
 根目录 `SKILL.md` 就是小模型 / 非交互精简版；原详细版 skill 文本保留在
 [`references/full-skill.md`](references/full-skill.md) 作参考。
 
@@ -354,8 +372,155 @@ out/my_video/
 **这一节就是「怎么把它接到多模态大模型上」的标准答案。** 本目录同时是一份 Agent Skill——这类 Agent 由具备视觉能力的多模态模型驱动，配套的 `SKILL.md` 把「抽帧 → 逐张读图 → 补读单帧 → 输出理解」整条链路固化下来，可被自动调用。核心三条约定：
 
 1. **隐式调用铁律** —— 对话里只要出现视频 / GIF 文件（上传附件、`@` 引用、给出本地路径），无论用户是否明说"分析这个视频"，都要先抽帧识图再作答。禁止不抽帧就凭文件名猜内容。
-2. **固定档位** —— 一律 `--cols 3 --sheet-max-cells 12 --sheet-width 1600`，输出到会话工作目录下的 `video_understanding/<视频名>/`，不要落在用户原始素材目录。
+2. **固定档位** —— 一律 `--cols 3 --sheet-max-cells 12 --sheet-width 1600`，默认输出到视频同级的 `<视频名>/`；需要放到别处时用 `--output`。运行结束会生成清理脚本。
 3. **逐张读完** —— 关键帧多时会分多张总览图，按 JSON 里 `overviews` 的顺序**一张一张全部读完**；小字读不清时按 `keyframes.json` 的帧号去 `Read` 单帧原图补细节，**不要重跑脚本**。
+
+### V3 详细行为
+
+#### 调用方式
+
+```text
+/skill:video-understanding "C:/Users/Bob/Videos/测试 视频.mp4"
+```
+
+pi 会把命令后面的内容作为 `User: ...` 追加到技能里；它就是视频路径，原样使用。
+
+#### 命令与参数
+
+```bash
+PYTHONUTF8=1 PYTHONIOENCODING=utf-8 python "<skill_dir>/scripts/run_video.py" "C:/Users/Bob/Videos/测试 视频.mp4"
+```
+
+`PYTHONUTF8=1 ...` 前缀是 Git Bash 写法；PowerShell 用
+`$env:PYTHONUTF8='1'; $env:PYTHONIOENCODING='utf-8'; ...`。
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `video` | — | 视频/GIF 路径（位置参数） |
+| `--output DIR` | 视频同级同名文件夹 | 输出目录 |
+| `--frame-quality` | `90` | 单帧 JPEG 质量，约等于 ffmpeg `-q:v 3` |
+| `--sheet-quality` | `95` | 总览图质量，建议不低于 92 |
+| `--cols` | `3` | 总览图列数 |
+| `--sheet-max-cells` | `12` | 每张最多格数 |
+| `--sheet-width` | `1600` | 总览图目标宽度 |
+| `--max-frames` | `200` | 最多关键帧数 |
+| `--heartbeat` | `5` | 心跳间隔秒数；`--no-heartbeat` 关闭 |
+| `--soft-timeout` | `570` | 软超时秒数；`0` 关闭 |
+| `--check` | 关 | 只检查路径/依赖 |
+| `--check-file FILE` | — | 检查文件路径（如总览图），可重复 |
+| `--path-file FILE` | — | 从 UTF-8 文本读取视频路径 |
+| `--no-cleanup-script` | 关 | 不生成清理脚本 |
+| `--force` | 关 | 允许写入已存在的非本工具输出目录（危险） |
+
+调用 pi 的 bash 工具时设置 `timeout=600`（长视频 `1800`）。`timeout` 是工具参数，
+不是命令参数：
+
+```text
+bash(command="...run_video.py \"C:/.../视频.mp4\"", timeout=600)
+```
+
+#### 输出结构
+
+```text
+C:\Videos\
+├── 测试 视频.mp4
+├── 测试 视频\
+│   ├── .video-understanding.json   # marker
+│   ├── overview.jpg                # 或 overview_01.jpg ...
+│   ├── keyframes.json
+│   └── frames\
+└── cleanup_测试 视频.cmd           # 自动生成
+```
+
+- 同名目录已存在但没有 marker 时，自动改用
+  `测试 视频_video-understanding\`，不会写进未知目录。
+- 同一视频重跑复用原目录；视频大小变化时不会复用。
+- 成功结果 JSON 包含 `output_dir`、`cleanup_script`、`overviews`、
+  `keyframes_json`、`keyframe_count`、`frame_quality`、`sheet_quality`、
+  `next_step`。
+
+#### 清理脚本
+
+```bat
+cleanup_测试 视频.cmd                     :: 删除整个输出目录（先确认）
+cleanup_测试 视频.cmd --keep-overviews    :: 只删 frames，保留总览图
+cleanup_测试 视频.cmd --yes               :: 非交互删除
+```
+
+- 删除前检查 `.video-understanding.json`；没有 marker 就拒绝。
+- `--keep-overviews` 保留脚本，方便之后完整删除。
+- 完整删除后脚本延迟自删除。
+
+#### 心跳与超时
+
+运行输出 JSONL：
+
+```json
+{"event":"heartbeat","stage":"analyze","current":1200,"total":5386,"pct":22.3,"elapsed":12.4}
+{"event":"heartbeat","stage":"export","current":8,"total":24,"pct":33.3,"elapsed":45.1}
+{"event":"result","ok":true,"output_dir":"...","overviews":["..."],"cleanup_script":"..."}
+```
+
+- 只读最后一条 `event: result`；心跳行表示进程还活着。
+- `ok: false` 时按 `error` + `hint` 停止。
+- 软超时默认 570 秒；更长视频增大 pi 的 bash `timeout` 或 `--soft-timeout`。
+
+#### 路径与编码
+
+- Windows 上优先用正斜杠并加引号，避免 Git Bash 吃掉反斜杠。
+- 脚本会处理 `file://`、`/c/Users/...`、首尾引号、末尾 `\"`、`~`、环境变量。
+- 路径不存在时，`--check` 会按“去掉所有空白后同名”去父目录找真实文件：
+  - 唯一匹配：自动纠正，返回 `video.absolute` 和 `did_you_mean`；
+  - 多个匹配：返回 `near_misses`，让用户确认。
+- 工具结果里的 `\u706b` 是 JSON 转义，不是路径。如果看到这种形式，用
+  `ls` 看父目录并复制真实文件名；不要把它抄进命令。
+- 中文路径被 shell 改写时：
+  ```bash
+  mkdir -p "$TEMP"
+  printf '%s\n' 'C:/Users/Bob/Videos/测试 视频.mp4' > "$TEMP/video_path.txt"
+  python "...\run_video.py" --path-file "$TEMP/video_path.txt"
+  ```
+  `video_path.txt` 是 UTF-8 单行路径；不要用默认不存在的 `C:/tmp`。
+- JSON 输出真实中文（`ensure_ascii=False`），pi 的 UTF-8 管道可以直接读；
+  命令前缀里的 `PYTHONIOENCODING=utf-8` 只负责输出编码，不需要额外改 codepage。
+- `/root/...` 在 Windows 上会被解析成 `C:\root\...`；遇到
+  `posix_on_windows: true` 或 ENOENT 时只诊断一次，不要原样重试。
+- 读图返回 ENOENT 时：
+  ```bash
+  python "...\run_video.py" --check-file "<overview_path>"
+  ```
+
+#### 报告格式
+
+```text
+## Summary
+一两句话：这是什么视频，意图是什么。
+
+## Visuals
+按时间顺序：场景、主体与动作、镜头运动、光线与色彩、氛围。
+
+## On-screen text
+逐字读出所有可辨认的文字，并说明含义及与画面的关系。没有就写 "No on-screen text"。
+
+## Message
+画面和文字合起来传达了什么。
+```
+
+- 不写时间戳、帧号、时间轴、分辨率、时长、帧率、关键帧数量。
+- 屏幕文字逐字读；没有文字时也要把画面写完整。
+- 很短的视频可以只写一段。
+
+#### 停止条件
+
+| 情况 | 动作 |
+| --- | --- |
+| `/root/...` 或 `posix_on_windows: true` | 要真实 Windows 路径；停止，不重试 |
+| 路径不存在 / `ENOENT` | 运行一次 `--check`；报告 `suggestion`；停止 |
+| `missing_dependencies` 非空 | 换有 numpy/Pillow 的 Python，或安装依赖；停止 |
+| `event: result` 里 `ok: false` | 报告 `error` + `hint`；停止 |
+| `[Image too large]` | 降低 `--sheet-width`（1600 -> 1200） |
+| 总览图文字模糊 | 降低 `--sheet-max-cells`（12 -> 10），或读单帧 |
+| 清理脚本提示 marker 不存在 | 不要删；说明目录不是本工具生成的 |
 
 识图后输出的是一段**自然语言理解**，而不是技术报告：
 
